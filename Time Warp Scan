@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Time Warp Scan</title>
+<style>
+  body, html { margin: 0; padding: 0; overflow: hidden; font-family: 'Poppins', sans-serif; background: #eee; }
+  #videoContainer { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px solid #000; overflow: hidden; border-radius: 15px; }
+  #warpCanvas { position: absolute; top: 0; left: 0; }
+  #videoElement { width: 100%; height: 100%; object-fit: cover; border-radius: 15px; }
+  #settingsScreen { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(255,255,255,0.95); display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    z-index: 100; opacity: 0; transition: opacity 0.7s ease;
+  }
+  #settingsScreen.show { display: flex; opacity: 1; animation: fadeIn 0.5s ease forwards; }
+  button { cursor: pointer; margin: 10px; transition: transform 0.3s ease, background 0.3s ease; padding: 10px 15px; border-radius: 10px; border: none; background: #007AFF; color: white; font-weight: bold; }
+  button:hover { transform: scale(1.1); background: #005BBB; }
+  select, input[type=range] { margin: 10px; padding: 8px; font-size: 16px; border-radius: 6px; border: 1px solid #ccc; }
+  #speedValue { font-weight: bold; margin-left: 10px; }
+  @keyframes fadeIn { from {opacity: 0; transform: scale(0.95);} to {opacity:1; transform: scale(1);} }
+  #controls { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 20px; }
+</style>
+</head>
+<body>
+<div id="videoContainer">
+  <video id="videoElement" autoplay playsinline></video>
+  <canvas id="warpCanvas"></canvas>
+</div>
+<div id="settingsScreen">
+  <h2 style="transition: transform 0.5s ease; transform: translateY(-20px);">Настройки</h2>
+  <label>Тема:</label>
+  <select id="themeSelect"><option value="light">Светлая</option><option value="dark">Чёрная</option></select><br>
+  <label>Направление линии:</label>
+  <select id="lineDirection"><option value="top-down">Сверху вниз</option><option value="bottom-up">Снизу вверх</option><option value="left-right">Слева направо</option><option value="right-left">Справа налево</option></select><br>
+  <label>Переворот камеры:</label>
+  <input type="checkbox" id="flipCamera" /><br>
+  <label>Скорость сканирования: <span id="speedValue">3</span></label>
+  <input type="range" id="scanSpeed" min="0.1" max="5" step="0.1" value="3" /><br>
+  <button id="closeSettings">Закрыть настройки</button>
+</div>
+<button id="btnSettings" style="position:absolute;top:10px;right:10px;">⚙</button>
+<button id="deviceSwitch" style="position:absolute;top:10px;left:10px;">t/l</button>
+<div id="controls">
+  <button id="btnPause">Pause</button>
+  <button id="btnStart">Start</button>
+  <button id="btnSave">Save</button>
+</div>
+<script>
+const canvas = document.getElementById('warpCanvas');
+const ctx = canvas.getContext('2d');
+const video = document.getElementById('videoElement');
+const videoContainer = document.getElementById('videoContainer');
+const speedDisplay = document.getElementById('speedValue');
+
+let device = 'phone', scanning = false, paused = false, linePos = 0, lineDir = 'top-down', flipCam = false, scanSpeed = 3;
+
+async function initCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({video:{ facingMode: device==='phone'?'user':'environment'} });
+    video.srcObject = stream;
+  } catch(err) { console.error('Не удалось включить камеру', err); }
+}
+
+function updateDevice() {
+  if(device==='phone'){ videoContainer.style.width='400px'; videoContainer.style.height='600px'; }
+  else{ videoContainer.style.width='800px'; videoContainer.style.height='500px'; }
+  canvas.width = videoContainer.clientWidth;
+  canvas.height = videoContainer.clientHeight;
+  initCamera();
+}
+
+function drawFrame() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(flipCam){ ctx.save(); ctx.scale(-1,1); ctx.drawImage(video,-canvas.width,0,canvas.width,canvas.height); ctx.restore(); }
+  else ctx.drawImage(video,0,0,canvas.width,canvas.height);
+
+  ctx.fillStyle='rgba(0,122,255,0.7)';
+  switch(lineDir){
+    case 'top-down': ctx.fillRect(0,linePos,canvas.width,10); break;
+    case 'bottom-up': ctx.fillRect(0,canvas.height-linePos,canvas.width,10); break;
+    case 'left-right': ctx.fillRect(linePos,0,10,canvas.height); break;
+    case 'right-left': ctx.fillRect(canvas.width-linePos,0,10,canvas.height); break;
+  }
+
+  if(scanning){
+    if(!paused){
+      const baseStep = canvas.height>canvas.width?canvas.height:canvas.width;
+      const step = (scanSpeed / 5) * baseStep * 0.0035; // плавная скорость 3=нормально
+      if(lineDir==='top-down' || lineDir==='bottom-up'){ linePos += step; if(linePos>(canvas.height)) scanning=false; }
+      else{ linePos += step; if(linePos>(canvas.width)) scanning=false; }
+    }
+    requestAnimationFrame(drawFrame);
+  }
+}
+
+document.getElementById('btnStart').addEventListener('click',()=>{
+  if(!scanning){ scanning=true; paused=false; linePos=0; drawFrame(); }
+});
+document.getElementById('btnPause').addEventListener('click',()=>{ paused=!paused; if(!paused) drawFrame(); });
+document.getElementById('btnSave').addEventListener('click',()=>{ const link=document.createElement('a'); link.download='timewarp.png'; link.href=canvas.toDataURL('image/png'); link.click(); });
+document.getElementById('btnSettings').addEventListener('click',()=>{ document.getElementById('settingsScreen').classList.add('show'); });
+document.getElementById('closeSettings').addEventListener('click',()=>{ document.getElementById('settingsScreen').classList.remove('show'); });
+document.getElementById('themeSelect').addEventListener('change',e=>{ canvas.style.transition='filter 0.5s ease'; canvas.style.filter=e.target.value==='dark'?'brightness(0.5)':'brightness(1)'; });
+document.getElementById('lineDirection').addEventListener('change',e=>{ lineDir=e.target.value; linePos=0; });
+document.getElementById('flipCamera').addEventListener('change',e=>{ flipCam=e.target.checked; });
+document.getElementById('scanSpeed').addEventListener('input',e=>{ scanSpeed=parseFloat(e.target.value); speedDisplay.textContent=scanSpeed; });
+document.getElementById('deviceSwitch').addEventListener('click',()=>{ device=device==='phone'?'laptop':'phone'; updateDevice(); });
+initCamera();
+updateDevice();
+</script>
+</body>
+</html>
