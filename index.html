@@ -55,6 +55,7 @@ const videoContainer = document.getElementById('videoContainer');
 const speedDisplay = document.getElementById('speedValue');
 
 let device = 'phone', scanning = false, paused = false, linePos = 0, lineDir = 'top-down', flipCam = false, scanSpeed = 3;
+let frozenImage;
 
 async function initCamera() {
   try {
@@ -68,42 +69,90 @@ function updateDevice() {
   else{ videoContainer.style.width='800px'; videoContainer.style.height='500px'; }
   canvas.width = videoContainer.clientWidth;
   canvas.height = videoContainer.clientHeight;
+  frozenImage = ctx.createImageData(canvas.width, canvas.height);
   initCamera();
 }
 
 function drawFrame() {
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  if(flipCam){ ctx.save(); ctx.scale(-1,1); ctx.drawImage(video,-canvas.width,0,canvas.width,canvas.height); ctx.restore(); }
-  else ctx.drawImage(video,0,0,canvas.width,canvas.height);
+  if(!scanning) return;
+  if(!paused){
+    // рисуем предыдущие зафиксированные пиксели
+    ctx.putImageData(frozenImage,0,0);
+    // получаем текущий кадр видео
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    const frame = ctx.getImageData(0,0,canvas.width,canvas.height);
 
-  ctx.fillStyle='rgba(0,122,255,0.7)';
-  switch(lineDir){
-    case 'top-down': ctx.fillRect(0,linePos,canvas.width,10); break;
-    case 'bottom-up': ctx.fillRect(0,canvas.height-linePos,canvas.width,10); break;
-    case 'left-right': ctx.fillRect(linePos,0,10,canvas.height); break;
-    case 'right-left': ctx.fillRect(canvas.width-linePos,0,10,canvas.height); break;
-  }
-
-  if(scanning){
-    if(!paused){
-      const baseStep = canvas.height>canvas.width?canvas.height:canvas.width;
-      const step = (scanSpeed / 5) * baseStep * 0.0035; // плавная скорость 3=нормально
-      if(lineDir==='top-down' || lineDir==='bottom-up'){ linePos += step; if(linePos>(canvas.height)) scanning=false; }
-      else{ linePos += step; if(linePos>(canvas.width)) scanning=false; }
+    // копируем пиксели до линии в frozenImage
+    if(lineDir==='top-down'){
+      const yEnd = Math.min(Math.floor(linePos), canvas.height);
+      for(let y=0;y<yEnd;y++){
+        for(let x=0;x<canvas.width;x++){
+          const idx = (y*canvas.width + x)*4;
+          frozenImage.data[idx] = frame.data[idx];
+          frozenImage.data[idx+1] = frame.data[idx+1];
+          frozenImage.data[idx+2] = frame.data[idx+2];
+          frozenImage.data[idx+3] = frame.data[idx+3];
+        }
+      }
+    } else if(lineDir==='bottom-up'){
+      const yStart = canvas.height-Math.min(Math.floor(linePos), canvas.height);
+      for(let y=yStart;y<canvas.height;y++){
+        for(let x=0;x<canvas.width;x++){
+          const idx = (y*canvas.width + x)*4;
+          frozenImage.data[idx] = frame.data[idx];
+          frozenImage.data[idx+1] = frame.data[idx+1];
+          frozenImage.data[idx+2] = frame.data[idx+2];
+          frozenImage.data[idx+3] = frame.data[idx+3];
+        }
+      }
+    } else if(lineDir==='left-right'){
+      const xEnd = Math.min(Math.floor(linePos), canvas.width);
+      for(let x=0;x<xEnd;x++){
+        for(let y=0;y<canvas.height;y++){
+          const idx = (y*canvas.width + x)*4;
+          frozenImage.data[idx] = frame.data[idx];
+          frozenImage.data[idx+1] = frame.data[idx+1];
+          frozenImage.data[idx+2] = frame.data[idx+2];
+          frozenImage.data[idx+3] = frame.data[idx+3];
+        }
+      }
+    } else if(lineDir==='right-left'){
+      const xStart = canvas.width-Math.min(Math.floor(linePos), canvas.width);
+      for(let x=xStart;x<canvas.width;x++){
+        for(let y=0;y<canvas.height;y++){
+          const idx = (y*canvas.width + x)*4;
+          frozenImage.data[idx] = frame.data[idx];
+          frozenImage.data[idx+1] = frame.data[idx+1];
+          frozenImage.data[idx+2] = frame.data[idx+2];
+          frozenImage.data[idx+3] = frame.data[idx+3];
+        }
+      }
     }
-    requestAnimationFrame(drawFrame);
+
+    // рисуем саму линию сканирования
+    ctx.fillStyle='rgba(0,122,255,0.7)';
+    if(lineDir==='top-down') ctx.fillRect(0,linePos,canvas.width,10);
+    else if(lineDir==='bottom-up') ctx.fillRect(0,canvas.height-linePos,canvas.width,10);
+    else if(lineDir==='left-right') ctx.fillRect(linePos,0,10,canvas.height);
+    else if(lineDir==='right-left') ctx.fillRect(canvas.width-linePos,0,10,canvas.height);
+
+    const baseStep = canvas.height>canvas.width?canvas.height:canvas.width;
+    const step = (scanSpeed / 5) * baseStep * 0.0035;
+    if(lineDir==='top-down' || lineDir==='bottom-up'){ linePos += step; if(linePos>(canvas.height)) scanning=false; }
+    else{ linePos += step; if(linePos>(canvas.width)) scanning=false; }
   }
+  requestAnimationFrame(drawFrame);
 }
 
 document.getElementById('btnStart').addEventListener('click',()=>{
-  if(!scanning){ scanning=true; paused=false; linePos=0; drawFrame(); }
+  if(!scanning){ scanning=true; paused=false; linePos=0; frozenImage = ctx.createImageData(canvas.width, canvas.height); drawFrame(); }
 });
 document.getElementById('btnPause').addEventListener('click',()=>{ paused=!paused; if(!paused) drawFrame(); });
 document.getElementById('btnSave').addEventListener('click',()=>{ const link=document.createElement('a'); link.download='timewarp.png'; link.href=canvas.toDataURL('image/png'); link.click(); });
 document.getElementById('btnSettings').addEventListener('click',()=>{ document.getElementById('settingsScreen').classList.add('show'); });
 document.getElementById('closeSettings').addEventListener('click',()=>{ document.getElementById('settingsScreen').classList.remove('show'); });
 document.getElementById('themeSelect').addEventListener('change',e=>{ canvas.style.transition='filter 0.5s ease'; canvas.style.filter=e.target.value==='dark'?'brightness(0.5)':'brightness(1)'; });
-document.getElementById('lineDirection').addEventListener('change',e=>{ lineDir=e.target.value; linePos=0; });
+document.getElementById('lineDirection').addEventListener('change',e=>{ lineDir=e.target.value; linePos=0; frozenImage = ctx.createImageData(canvas.width, canvas.height); });
 document.getElementById('flipCamera').addEventListener('change',e=>{ flipCam=e.target.checked; });
 document.getElementById('scanSpeed').addEventListener('input',e=>{ scanSpeed=parseFloat(e.target.value); speedDisplay.textContent=scanSpeed; });
 document.getElementById('deviceSwitch').addEventListener('click',()=>{ device=device==='phone'?'laptop':'phone'; updateDevice(); });
